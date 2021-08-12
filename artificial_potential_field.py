@@ -35,11 +35,7 @@ class PathPlanner:
         self.r = rospy.Rate(10)
         self.sub = rospy.Subscriber ('/odom', Odometry, self.get_rotation)
 
-        self.kp_distance = 0.05
-        self.kp_angle = 0.9
-                
-        self.distance =math.sqrt(math.pow((self.gx - self.sx)*grid_side, 2) + math.pow((self.gy - self.sy)*grid_side, 2))
-        
+
         time.sleep(10)
         self.declare_grid()
         self.initialise_obstacles()
@@ -134,29 +130,42 @@ class PathPlanner:
         print(self.moves)
     
     def simulate(self):
+        kp_distance = 0.5
+        kp_angle = 2.0
+        ki=0.001
+        kd=0.1
+        
         previous_pop=[self.sx,self.sy]
+        self.sub = rospy.Subscriber ('/odom', Odometry, self.get_rotation)
         while len(self.moves)>1:
-            self.sub = rospy.Subscriber ('/odom', Odometry, self.get_rotation)
             previous_x=self.current_x
             previous_y=self.current_y
             grid_change=0 
             current_pop=self.moves.pop(1)
-            self.sub.unregister()
+            
+            error_add=0
+            error_change=0
+            previous_error=math.sqrt(math.pow((current_pop[1] - previous_pop[1]), 2) + math.pow((current_pop[0] -  previous_pop[0]), 2))
+
             while grid_change< 0.5:
                 grid_change = max(abs(self.current_x-previous_x),abs(self.current_y-previous_y))
-                self.sub = rospy.Subscriber ('/odom', Odometry, self.get_rotation)
+                
                 x_start = self.current_x
                 y_start = self.current_y
                 path_angle = math.atan2(current_pop[1] - previous_pop[1], current_pop[0]- previous_pop[0])
 
                 
-                self.distance = math.sqrt(math.pow(((self.gx*self.grid_side) - x_start), 2) + math.pow(((self.gy*self.grid_side) - y_start), 2))
+                current_error = math.sqrt(math.pow((current_pop[1] - y_start), 2) + math.pow((current_pop[0] - x_start), 2))
 
-                control_signal_distance = self.kp_distance*self.distance #+ self.ki_distance*self.total_distance + self.kd_distance*diff_distance
+                error_add+=current_error
+                error_change=current_error-previous_error
 
+                control_signal_distance = kp_distance*current_error + ki*error_add + kd*error_change
 
-                self.move_cmd.angular.z = self.kp_angle*((path_angle) - self.yaw)
-                self.move_cmd.linear.x = min(control_signal_distance, 0.1)
+                self.move_cmd.angular.z = kp_angle*((path_angle) - self.yaw)
+                self.move_cmd.linear.x = min(control_signal_distance, 0.2)
+
+                previous_error=current_error
 
                 if self.move_cmd.angular.z > 0:
                     self.move_cmd.angular.z = min(self.move_cmd.angular.z, 1.5)
@@ -164,7 +173,6 @@ class PathPlanner:
                     self.move_cmd.angular.z = max(self.move_cmd.angular.z, -1.5)
 
                 self.pub.publish(self.move_cmd)
-                self.sub.unregister()
                 self.r.sleep()
             previous_pop[0]=current_pop[0]    
             previous_pop[1]=current_pop[1]        
@@ -187,15 +195,14 @@ class PathPlanner:
 
 
 def main():                                                         
-    sx=0.5                                                                         # staring x distance from origin (in meters)
-    sy=0.5                                                                         # staring y distance from origin (in meters)
-    gx=3.5                                                                         # final x distance from origin (in meters)
-    gy=3.5                                                                         # final y distance from origin (in meters)
-    radius_cylinder = 0.25                                                          
+    sx=0
+    sy=0                                                     
+    gx=6
+    gy=6                                                       
+    radius_cylinder = 0.25               
     grid_side=0.5                                       
-    oy = [1.5,3.0,4.5,0.0,1.5,3.0,4.5,0.0,1.5,3.0,4.5,0.0,1.5,3.0,4.5]              # List of x distance of all obstacles from the origin (in meters)               
-    ox = [0.0,0.0,0.0,1.5,1.5,1.5,1.5,3.0,3.0,3.0,3.0,4.5,4.5,4.5,4.5]              # List of y distance of all obstacles from the origin (in meters)                          
+    oy = [1.5,3.0,4.5,0.0,1.5,3.0,4.5,0.0,1.5,3.0,4.5,0.0,1.5,3.0,4.5]                             
+    ox = [0.0,0.0,0.0,1.5,1.5,1.5,1.5,3.0,3.0,3.0,3.0,4.5,4.5,4.5,4.5]                           
     obj=PathPlanner(sx,sy,gx,gy,radius_cylinder,grid_side,ox,oy)
 
 main()    
-
